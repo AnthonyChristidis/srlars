@@ -1,7 +1,8 @@
 Package: srlars
 Type: Package
 Title: Split Robust Least Angle Regression
-Version: 1.0.0
+Version: 1.0.1
+Date: 2023-07-16
 Authors@R: c(person("Anthony", "Christidis", role=c("aut", "cre"), email = "anthony.christidis@stat.ubc.ca"),
              person("Gabriela", "Cohen-Freue", role=c("aut"), email = "gcohen@stat.ubc.ca"))
 Maintainer: Anthony Christidis <anthony.christidis@stat.ubc.ca>

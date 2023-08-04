@@ -191,9 +191,10 @@ srlars <- function(x, y,
                                             x_imp, y_imp,
                                             Rx, Ry,
                                             model_saturation, alpha)
+  n_available <- p - n_models
 
   # Looping over the models
-  while(length(unsaturated_models) != 0){
+  while(length(unsaturated_models) != 0 & (n_available > 1)){
 
     # Finding optimal unsaturated model
     p_values <- sapply(lars_models, function(x) x$p_value)
@@ -204,6 +205,8 @@ srlars <- function(x, y,
     # Add optimal predictor for optimal model
     lars_models[[optimal_model]] <- add_optimal_predictor(lars_models[[optimal_model]],
                                                           model_saturation, model_size, n)
+    n_available <- n_available - 1
+
     # Update optimal model
     if(!lars_models[[optimal_model]][["saturated"]])
       lars_models[[optimal_model]] <- find_optimal(lars_models[[optimal_model]],
