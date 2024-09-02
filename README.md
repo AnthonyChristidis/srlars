@@ -1,6 +1,6 @@
-[![CRAN\_Status\_Badge](http://www.r-pkg.org/badges/version/srlars)](https://cran.r-project.org/package=srlars)
+[![CRAN\_Status\_Badge](https://www.r-pkg.org/badges/version/srlars)](https://cran.r-project.org/package=srlars)
 [![CRAN Data](https://www.r-pkg.org/badges/last-release/srlars)](https://cran.r-project.org/package=srlars) 
-[![Downloads](http://cranlogs.r-pkg.org/badges/srlars)](https://cran.r-project.org/package=srlars)
+[![Downloads](https://cranlogs.r-pkg.org/badges/srlars)](https://cran.r-project.org/package=srlars)
 
 srlars
 ================
