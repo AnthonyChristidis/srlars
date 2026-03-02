@@ -2,58 +2,54 @@
 % Please edit documentation in R/srlars.R
 \name{srlars}
 \alias{srlars}
-\title{Robust Split Least Angle Regression}
+\title{Fast and Scalable Cellwise-Robust Ensemble (FSCRE)}
 \usage{
 srlars(
   x,
   y,
-  n_models = 1,
-  model_saturation = c("fixed", "p-value")[1],
-  alpha = 0.05,
-  model_size = NULL,
+  n_models = 5,
+  tolerance = 1e-08,
+  max_predictors = NULL,
   robust = TRUE,
-  compute_coef = FALSE,
-  en_alpha = 1/4
+  compute_coef = TRUE
 )
 }
 \arguments{
-\item{x}{Design matrix.}
+\item{x}{Design matrix (n x p).}
 
-\item{y}{Response vector.}
+\item{y}{Response vector (n x 1).}
 
-\item{n_models}{Number of models into which the variables are split.}
+\item{n_models}{Number of models in the ensemble (K). Default is 5.}
 
-\item{model_saturation}{Criterion to determine if a model is saturated. Must be one of "fixed" (default) or "p-value".}
+\item{tolerance}{Relative improvement tolerance for stopping (tau). Default is 1e-8.}
 
-\item{alpha}{P-value used to determine when the model is saturated}
+\item{max_predictors}{Maximum total number of variables to select across all models. Default is n * n_models.}
 
-\item{model_size}{Size of the models in the ensemble.}
+\item{robust}{Logical. If TRUE (default), performs DDC imputation and robust initialization.}
 
-\item{robust}{Argument to determine if robust measures of location, scale and correlation are used. Default is TRUE.}
-
-\item{compute_coef}{Argument to determine if coefficients are computed (via the elastic net) for each model. Default is FALSE.}
-
-\item{en_alpha}{Elastic net mixing parmeter for parameters shrinkage. Default is 1/4.}
+\item{compute_coef}{Logical. If TRUE, fits the final robust MM-models. Default is TRUE.}
 }
 \value{
-An object of class srlars
+An object of class \code{srlars} containing the selected variables and coefficients.
 }
 \description{
-\code{srlars} performs split robust least angle regression.
+\code{srlars} performs the FSCRE algorithm for robust variable selection and regression.
 }
 \examples{
-# Required library
+# Required libraries
 library(mvnfast)
+library(cellWise)
+library(robustbase)
 
 # Simulation parameters
 n <- 50
-p <- 500
+p <- 100
 rho.within <- 0.8
 rho.between <- 0.2
-p.active <- 100
-group.size <- 25
+p.active <- 20
+group.size <- 5
 snr <- 3
-contamination.prop <- 0.2
+contamination.prop <- 0.1
 
 # Setting the seed
 set.seed(0)
@@ -76,48 +72,20 @@ sigma <- as.numeric(sqrt(t(true.beta) \%*\% sigma.mat \%*\% true.beta)/sqrt(snr)
 x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
 y <- x \%*\% true.beta + rnorm(n, 0, sigma)
 
-# Contamination of data
-contamination_indices <- 1:floor(n*contamination.prop)
-k_lev <- 2
-k_slo <- 100
+# Cellwise contamination
+contamination_indices <- sample(1:(n * p), round(n * p * contamination.prop))
 x_train <- x
-y_train <- y
-beta_cont <- true.beta
-beta_cont[true.beta!=0] <- beta_cont[true.beta!=0]*(1 + k_slo)
-beta_cont[true.beta==0] <- k_slo*max(abs(true.beta))
-for(cont_id in contamination_indices){
+x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
 
-  a <- runif(p, min = -1, max = 1)
-  a <- a - as.numeric((1/p)*t(a) \%*\% rep(1, p))
-  x_train[cont_id,] <- mvnfast::rmvn(1, rep(0, p), 0.1^2*diag(p)) +
-    k_lev * a / as.numeric(sqrt(t(a) \%*\% solve(sigma.mat) \%*\% a))
-  y_train[cont_id] <- t(x_train[cont_id,]) \%*\% beta_cont
-}
-
-# Ensemble models
-ensemble_fit <- srlars(x_train, y_train,
+# FSCRE Ensemble model
+ensemble_fit <- srlars(x_train, y,
                        n_models = 5,
-                       model_saturation = c("fixed", "p-value")[1],
-                       alpha = 0.05, model_size = n - 1,
+                       tolerance = 1e-8,
                        robust = TRUE,
-                       compute_coef = TRUE,
-                       en_alpha = 1/4)
+                       compute_coef = TRUE)
 
-# Ensemble coefficients
-ensemble_coefs <- coef(ensemble_fit, group_index = 1:ensemble_fit$n_models)
-sens_ensemble <- sum(which((ensemble_coefs[-1]!=0)) <= p.active)/p.active
-spec_ensemble <- sum(which((ensemble_coefs[-1]!=0)) <= p.active)/sum(ensemble_coefs[-1]!=0)
-
-# Simulation of test data
-m <- 2e3
-x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
-y_test <- x_test \%*\% true.beta + rnorm(m, 0, sigma)
-
-# Prediction of test samples
-ensemble_preds <- predict(ensemble_fit, newx = x_test,
-                          group_index = 1:ensemble_fit$n_models,
-                          dynamic = FALSE)
-mspe_ensemble <- mean((y_test - ensemble_preds)^2)/sigma^2
+# Check selected variables
+print(ensemble_fit$active.sets)
 
 }
 \seealso{
