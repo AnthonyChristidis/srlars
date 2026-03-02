@@ -1,8 +1,8 @@
 Package: srlars
 Type: Package
 Title: Fast and Scalable Cellwise-Robust Ensemble
-Version: 2.0.0
-Date: 2026-03-01
+Version: 2.0.1
+Date: 2026-04-01
 Authors@R: c(person("Anthony", "Christidis", role=c("aut", "cre"), email = "anthony.christidis@stat.ubc.ca"),
              person("Gabriela", "Cohen-Freue", role=c("aut"), email = "gcohen@stat.ubc.ca"))
 Maintainer: Anthony Christidis <anthony.christidis@stat.ubc.ca>

@@ -27,73 +27,88 @@ devtools::install_github("AnthonyChristidis/srlars")
 ### Usage
 
 ``` r
-# Simulation parameters
+library(srlars)
+library(mvnfast)
+
+# --- 1. Simulation Parameters ---
+
 n <- 50
-p <- 500
-rho <- 0.5
-rho.inactive <- 0.2
-group.size <- 25
-p.active <- 100
-snr <- 1
-contamination.prop <- 0.2
+p <- 100
+rho.within <- 0.8
+rho.between <- 0.2
+p.active <- 20
+group.size <- 5
+snr <- 3
+contamination.prop <- 0.1
 
 # Setting the seed
 set.seed(0)
 
-# Block Correlation
+# --- 2. Data Generation ---
+
+# Block correlation structure
 sigma.mat <- matrix(0, p, p)
-sigma.mat[1:p.active, 1:p.active] <- rho.inactive
+sigma.mat[1:p.active, 1:p.active] <- rho.between
 for(group in 0:(p.active/group.size - 1))
-  sigma.mat[(group*group.size+1):(group*group.size+group.size),(group*group.size+1):(group*group.size+group.size)] <- rho
+  sigma.mat[(group*group.size+1):(group*group.size+group.size),
+  (group*group.size+1):(group*group.size+group.size)] <- rho.within
 diag(sigma.mat) <- 1
 
-# Simulation of beta vector
+# True coefficient vector
 true.beta <- c(runif(p.active, 0, 5)*(-1)^rbinom(p.active, 1, 0.7), rep(0, p - p.active))
 
-# Setting the SD of the variance
+# Noise level
 sigma <- as.numeric(sqrt(t(true.beta) %*% sigma.mat %*% true.beta)/sqrt(snr))
 
-# Simulation of test data
+# Generate uncontaminated training data
+x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
+y <- x %*% true.beta + rnorm(n, 0, sigma)
+
+# Generate test data
 m <- 2e3
 x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
 y_test <- x_test %*% true.beta + rnorm(m, 0, sigma)
 
-# Simulation of uncontaminated data
-x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
-y <- x %*% true.beta + rnorm(n, 0, sigma)
+# --- 3. Introduce Contamination ---
 
-# Contamination of data
-contamination_indices <- 1:floor(n*contamination.prop)
-k_lev <- 2
-k_slo <- 100
+# Cellwise contamination
+contamination_indices <- sample(1:(n * p), round(n * p * contamination.prop))
 x_train <- x
+x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
 y_train <- y
-beta_cont <- true.beta
-beta_cont[true.beta!=0] <- beta_cont[true.beta!=0]*(1 + k_slo)
-beta_cont[true.beta==0] <- k_slo*max(abs(true.beta))
-for(cont_id in contamination_indices){
 
-  a <- runif(p, min = -1, max = 1)
-  a <- a - as.numeric((1/p)*t(a) %*% rep(1, p))
-  x_train[cont_id,] <- mvnfast::rmvn(1, rep(0, p), 0.1^2*diag(p)) + k_lev * a / as.numeric(sqrt(t(a) %*% solve(sigma.mat) %*% a))
-  y_train[cont_id] <- t(x_train[cont_id,]) %*% beta_cont
-}
+# --- 4. Fit srlars Model ---
 
-# srlars models
-srlars_fit <- srlars(x_train, y_train,
-                     n_models = 5,
-                     model_saturation = c("fixed", "p-value")[1],
-                     alpha = 0.05, model_size = n-1,
-                     robust = TRUE,
-                     compute_coef = TRUE,
-                     en_alpha = 1/4)
-srlars_preds <- predict(srlars_fit, newx = x_test,
-                        group_index = 1:srlars_fit$n_models,
-                        dynamic = FALSE)
-srlars_coefs <- coef(srlars_fit, group_index = 1:srlars_fit$n_models)
-sens_srlars <- sum(which((srlars_coefs[-1]!=0)) <= p.active)/p.active
-spec_srlars <- sum(which((srlars_coefs[-1]!=0)) <= p.active)/sum(srlars_coefs[-1]!=0)
-mspe_srlars <- mean((y_test - srlars_preds)^2)/sigma^2
+# Fit the FSCRE ensemble
+# We use 5 sub-models and robust initialization
+fit <- srlars(x_train, y_train,
+              n_models = 5,
+              tolerance = 0.01,
+              robust = TRUE,
+              compute_coef = TRUE)
+
+# --- 5. Prediction and Evaluation ---
+
+# Predict on new data
+# By default, this uses dynamic robust imputation for the new data
+preds <- predict(fit, newx = x_test)
+
+# Evaluate MSPE
+mspe <- mean((y_test - preds)^2) / sigma^2
+print(paste("MSPE:", round(mspe, 3)))
+
+# Extract Coefficients (averaged over the ensemble)
+coefs <- coef(fit)
+
+# Variable Selection Metrics
+selected_indices <- which(coefs[-1] != 0)
+true_indices <- which(true.beta != 0)
+
+recall <- length(intersect(selected_indices, true_indices)) / length(true_indices)
+precision <- length(intersect(selected_indices, true_indices)) / length(selected_indices)
+
+print(paste("Recall:", round(recall, 3)))
+print(paste("Precision:", round(precision, 3)))
 ```
 
 ### License
