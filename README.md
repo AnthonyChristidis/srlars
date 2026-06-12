@@ -62,12 +62,14 @@ sigma <- as.numeric(sqrt(t(true.beta) %*% sigma.mat %*% true.beta)/sqrt(snr))
 
 # Generate uncontaminated training data
 x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
-y <- x %*% true.beta + rnorm(n, 0, sigma)
+colnames(x) <- paste0("V", 1:p)
+y <- as.numeric(x %*% true.beta + rnorm(n, 0, sigma))
 
 # Generate test data
 m <- 2e3
 x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
-y_test <- x_test %*% true.beta + rnorm(m, 0, sigma)
+colnames(x_test) <- paste0("V", 1:p)
+y_test <- as.numeric(x_test %*% true.beta + rnorm(m, 0, sigma))
 
 # --- 3. Introduce Contamination ---
 
@@ -80,17 +82,22 @@ y_train <- y
 # --- 4. Fit srlars Model ---
 
 # Fit the FSCRE ensemble
-# We use 5 sub-models and robust initialization
+# We use 5 sub-models and the new robust configurations
 fit <- srlars(x_train, y_train,
               n_models = 5,
-              tolerance = 0.01,
-              robust = TRUE,
+              tolerance = 1e-4,
+              x_preprocess = "ddc",
+              y_preprocess = "wrap",
+              cor_estimator = "wrap",
+              cv_preprocess = "global",
+              cv_fit = "ls",
+              cv_loss = "huber",
               compute_coef = TRUE)
 
 # --- 5. Prediction and Evaluation ---
 
 # Predict on new data
-# By default, this uses dynamic robust imputation for the new data
+# This automatically applies the trained DDC transform to the test predictors
 preds <- predict(fit, newx = x_test)
 
 # Evaluate MSPE
@@ -105,7 +112,12 @@ selected_indices <- which(coefs[-1] != 0)
 true_indices <- which(true.beta != 0)
 
 recall <- length(intersect(selected_indices, true_indices)) / length(true_indices)
-precision <- length(intersect(selected_indices, true_indices)) / length(selected_indices)
+
+if (length(selected_indices) > 0) {
+  precision <- length(intersect(selected_indices, true_indices)) / length(selected_indices)
+} else {
+  precision <- 0
+}
 
 print(paste("Recall:", round(recall, 3)))
 print(paste("Precision:", round(precision, 3)))
