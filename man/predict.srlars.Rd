@@ -60,6 +60,7 @@ sigma <- as.numeric(sqrt(t(true.beta) \%*\% sigma.mat \%*\% true.beta)/sqrt(snr)
 
 # Simulation of uncontaminated data
 x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
+colnames(x) <- paste0("V", 1:p)
 y <- x \%*\% true.beta + rnorm(n, 0, sigma)
 
 # Cellwise contamination
@@ -70,22 +71,25 @@ x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
 # FSCRE Ensemble model
 ensemble_fit <- srlars(x_train, y,
                        n_models = 5,
-                       tolerance = 0.01,
-                       robust = TRUE,
+                       tolerance = 1e-4,
+                       x_preprocess = "ddc",
+                       y_preprocess = "wrap",
+                       cor_estimator = "wrap",
+                       cv_preprocess = "global",
+                       cv_fit = "ls",
+                       cv_loss = "huber",
                        compute_coef = TRUE)
 
-# Simulation of test data
-m <- 50
-x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
-y_test <- x_test \%*\% true.beta + rnorm(m, 0, sigma)
+# Generate Test Data
+x_test <- mvnfast::rmvn(50, mu = rep(0, p), sigma = sigma.mat)
+colnames(x_test) <- paste0("V", 1:p)
+y_test <- x_test \%*\% true.beta + rnorm(50, 0, sigma)
 
-# Prediction of test samples
-# Default: Averaged prediction from all models
-# Dynamic imputation is used by default if the model is robust
-ensemble_preds <- predict(ensemble_fit, newx = x_test)
+# Predict on Test Data
+preds <- predict(ensemble_fit, x_test)
 
-# Evaluate MSPE
-mspe <- mean((y_test - ensemble_preds)^2) / sigma^2
+# Calculate MSPE
+mspe <- mean((y_test - preds)^2)
 print(paste("MSPE:", mspe))
 
 }

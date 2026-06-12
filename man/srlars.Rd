@@ -53,6 +53,65 @@ An object of class \code{srlars} containing the selected variables and coefficie
 \description{
 \code{srlars} performs the FSCRE algorithm for robust variable selection and regression.
 }
+\examples{
+# Required libraries
+library(mvnfast)
+library(cellWise)
+library(robustbase)
+
+# Simulation parameters
+n <- 50
+p <- 100
+rho.within <- 0.8
+rho.between <- 0.2
+p.active <- 20
+group.size <- 5
+snr <- 3
+contamination.prop <- 0.1
+
+# Setting the seed
+set.seed(0)
+
+# Block correlation structure
+sigma.mat <- matrix(0, p, p)
+sigma.mat[1:p.active, 1:p.active] <- rho.between
+for(group in 0:(p.active/group.size - 1))
+  sigma.mat[(group*group.size+1):(group*group.size+group.size),
+  (group*group.size+1):(group*group.size+group.size)] <- rho.within
+diag(sigma.mat) <- 1
+
+# Simulation of beta vector
+true.beta <- c(runif(p.active, 0, 5)*(-1)^rbinom(p.active, 1, 0.7), rep(0, p - p.active))
+
+# Setting the SD of the variance
+sigma <- as.numeric(sqrt(t(true.beta) \%*\% sigma.mat \%*\% true.beta)/sqrt(snr))
+
+# Simulation of uncontaminated data
+x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
+colnames(x) <- paste0("V", 1:p)
+y <- x \%*\% true.beta + rnorm(n, 0, sigma)
+
+# Cellwise contamination
+contamination_indices <- sample(1:(n * p), round(n * p * contamination.prop))
+x_train <- x
+x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
+
+# FSCRE Ensemble model
+ensemble_fit <- srlars(x_train, y,
+                       n_models = 5,
+                       tolerance = 1e-4,
+                       x_preprocess = "ddc",
+                       y_preprocess = "wrap",
+                       cor_estimator = "wrap",
+                       cv_preprocess = "global",
+                       cv_fit = "ls",
+                       cv_loss = "huber",
+                       compute_coef = TRUE)
+
+# Check selected variables
+print(ensemble_fit$active.sets)
+
+}
 \seealso{
 \code{\link{coef.srlars}}, \code{\link{predict.srlars}}
 }

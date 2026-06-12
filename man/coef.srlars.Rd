@@ -54,6 +54,7 @@ sigma <- as.numeric(sqrt(t(true.beta) \%*\% sigma.mat \%*\% true.beta)/sqrt(snr)
 
 # Simulation of uncontaminated data
 x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
+colnames(x) <- paste0("V", 1:p)
 y <- x \%*\% true.beta + rnorm(n, 0, sigma)
 
 # Cellwise contamination
@@ -64,8 +65,13 @@ x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
 # FSCRE Ensemble model
 ensemble_fit <- srlars(x_train, y,
                        n_models = 5,
-                       tolerance = 0.01,
-                       robust = TRUE,
+                       tolerance = 1e-4,
+                       x_preprocess = "ddc",
+                       y_preprocess = "wrap",
+                       cor_estimator = "wrap",
+                       cv_preprocess = "global",
+                       cv_fit = "ls",
+                       cv_loss = "huber",
                        compute_coef = TRUE)
 
 # Ensemble coefficients
