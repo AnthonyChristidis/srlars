@@ -10,7 +10,13 @@ srlars(
   n_models = 5,
   tolerance = 1e-08,
   max_predictors = NULL,
-  robust = TRUE,
+  x_preprocess = c("ddc", "none"),
+  y_preprocess = c("wrap", "robust_z", "none"),
+  cor_estimator = c("wrap", "pearson"),
+  cv_preprocess = c("global", "foldwise"),
+  cv_fit = c("ls", "huber"),
+  cv_loss = c("huber", "trimmed", "mse"),
+  cv_folds = 5,
   compute_coef = TRUE
 )
 }
@@ -25,7 +31,19 @@ srlars(
 
 \item{max_predictors}{Maximum total number of variables to select across all models. Default is n * n_models.}
 
-\item{robust}{Logical. If TRUE (default), performs DDC imputation and robust initialization.}
+\item{x_preprocess}{Character. "ddc" (default) for cellwise cleaning, or "none".}
+
+\item{y_preprocess}{Character. "wrap" (default) for univariate robustification, "robust_z", or "none".}
+
+\item{cor_estimator}{Character. "wrap" (default) for robust PSD correlation, or "pearson".}
+
+\item{cv_preprocess}{Character. "global" (default) or "foldwise" (to prevent data leakage).}
+
+\item{cv_fit}{Character. "ls" (default) or "huber" for the inner arbiter fitting method.}
+
+\item{cv_loss}{Character. "huber" (default), "trimmed", or "mse" for arbiter scoring.}
+
+\item{cv_folds}{Integer. Number of cross-validation folds. Default is 5.}
 
 \item{compute_coef}{Logical. If TRUE, fits the final robust MM-models. Default is TRUE.}
 }
@@ -34,59 +52,6 @@ An object of class \code{srlars} containing the selected variables and coefficie
 }
 \description{
 \code{srlars} performs the FSCRE algorithm for robust variable selection and regression.
-}
-\examples{
-# Required libraries
-library(mvnfast)
-library(cellWise)
-library(robustbase)
-
-# Simulation parameters
-n <- 50
-p <- 100
-rho.within <- 0.8
-rho.between <- 0.2
-p.active <- 20
-group.size <- 5
-snr <- 3
-contamination.prop <- 0.1
-
-# Setting the seed
-set.seed(0)
-
-# Block correlation structure
-sigma.mat <- matrix(0, p, p)
-sigma.mat[1:p.active, 1:p.active] <- rho.between
-for(group in 0:(p.active/group.size - 1))
-  sigma.mat[(group*group.size+1):(group*group.size+group.size),
-  (group*group.size+1):(group*group.size+group.size)] <- rho.within
-diag(sigma.mat) <- 1
-
-# Simulation of beta vector
-true.beta <- c(runif(p.active, 0, 5)*(-1)^rbinom(p.active, 1, 0.7), rep(0, p - p.active))
-
-# Setting the SD of the variance
-sigma <- as.numeric(sqrt(t(true.beta) \%*\% sigma.mat \%*\% true.beta)/sqrt(snr))
-
-# Simulation of uncontaminated data
-x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
-y <- x \%*\% true.beta + rnorm(n, 0, sigma)
-
-# Cellwise contamination
-contamination_indices <- sample(1:(n * p), round(n * p * contamination.prop))
-x_train <- x
-x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
-
-# FSCRE Ensemble model
-ensemble_fit <- srlars(x_train, y,
-                       n_models = 5,
-                       tolerance = 1e-8,
-                       robust = TRUE,
-                       compute_coef = TRUE)
-
-# Check selected variables
-print(ensemble_fit$active.sets)
-
 }
 \seealso{
 \code{\link{coef.srlars}}, \code{\link{predict.srlars}}

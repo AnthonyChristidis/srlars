@@ -2,23 +2,24 @@
 % Please edit documentation in R/computeCVError.R
 \name{computeCVError}
 \alias{computeCVError}
-\title{Compute Cross-Validated Prediction Error (Internal)}
+\title{Compute CV Error (Internal)}
 \usage{
-computeCVError(x, y, active_set, folds = 5)
+computeCVError(cv_data, active_set, cv_fit, cv_loss)
 }
 \arguments{
-\item{x}{Design matrix (imputed).}
+\item{cv_data}{List of fold data (x_train, y_train, x_val, y_val).}
 
-\item{y}{Response vector (imputed).}
+\item{active_set}{Integer vector of active predictors.}
 
-\item{active_set}{Indices of predictors to include.}
+\item{cv_fit}{Character. Fitting method: "ls" or "huber" (IRLS).}
 
-\item{folds}{Number of folds (default 5).}
+\item{cv_loss}{Character. Loss function: "huber", "trimmed", or "mse".}
 }
 \value{
-A single numeric value (Mean Squared Prediction Error).
+Numeric. The averaged cross-validation error.
 }
 \description{
-Computes the V-fold CV error for a linear regression model using fast LS fitting.
+Evaluates the cross-validation error of a given active set using a hyper-fast 
+Cholesky solver (with optional Huber IRLS robust fitting) and robust validation loss.
 }
 \keyword{internal}

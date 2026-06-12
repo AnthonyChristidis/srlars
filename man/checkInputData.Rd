@@ -4,7 +4,21 @@
 \alias{checkInputData}
 \title{Check Input Data for srlars Function}
 \usage{
-checkInputData(x, y, n_models, tolerance, max_predictors, robust, compute_coef)
+checkInputData(
+  x,
+  y,
+  n_models,
+  tolerance,
+  max_predictors,
+  x_preprocess,
+  y_preprocess,
+  cor_estimator,
+  cv_preprocess,
+  cv_loss,
+  cv_fit,
+  cv_folds,
+  compute_coef
+)
 }
 \arguments{
 \item{x}{Design matrix.}
@@ -17,7 +31,19 @@ checkInputData(x, y, n_models, tolerance, max_predictors, robust, compute_coef)
 
 \item{max_predictors}{Maximum total number of variables to select.}
 
-\item{robust}{Logical.}
+\item{x_preprocess}{X cleaning method.}
+
+\item{y_preprocess}{y cleaning method.}
+
+\item{cor_estimator}{Correlation method.}
+
+\item{cv_preprocess}{Foldwise or global CV.}
+
+\item{cv_loss}{Arbiter loss function.}
+
+\item{cv_fit}{Arbiter fit function.}
+
+\item{cv_folds}{Number of CV folds.}
 
 \item{compute_coef}{Logical.}
 }

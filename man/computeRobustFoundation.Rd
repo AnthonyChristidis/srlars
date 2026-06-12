@@ -4,20 +4,25 @@
 \alias{computeRobustFoundation}
 \title{Compute Robust Foundation (Internal)}
 \usage{
-computeRobustFoundation(x, y, robust)
+computeRobustFoundation(x, y, x_preprocess, y_preprocess, cor_estimator)
 }
 \arguments{
 \item{x}{Design matrix.}
 
 \item{y}{Response vector.}
 
-\item{robust}{Logical.}
+\item{x_preprocess}{Method for X cleaning ("ddc", "none").}
+
+\item{y_preprocess}{Method for y cleaning ("wrap", "robust_z", "none").}
+
+\item{cor_estimator}{Method for correlations ("wrap", "pearson").}
 }
 \value{
-A list containing the imputed data (x.imp, y.imp), the robust correlation structures (Rx, ry),
+A list containing the imputed data (x.imp, y.imp), the correlation structures (Rx, ry),
 and the DDC object for prediction.
 }
 \description{
-Implements Stage 1 of the FSCRE algorithm: data cleaning via DDC and robust correlation estimation.
+Implements Stage 1 of the FSCRE algorithm: separate data cleaning for X and y,
+and robust, PSD correlation estimation.
 }
 \keyword{internal}

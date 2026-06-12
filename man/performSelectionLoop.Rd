@@ -4,27 +4,86 @@
 \alias{performSelectionLoop}
 \title{FSCRE Competitive Selection Loop (Internal)}
 \usage{
-performSelectionLoop(Rx, ry, x.imp, y.imp, n_models, max_predictors, tolerance)
+performSelectionLoop(
+  Rx,
+  ry,
+  x,
+  y,
+  x.imp,
+  y.imp,
+  n_models,
+  max_predictors,
+  tolerance,
+  x_preprocess,
+  y_preprocess,
+  cv_preprocess,
+  cv_fit,
+  cv_loss,
+  cv_folds
+)
 }
 \arguments{
-\item{Rx}{Global robust predictor correlation matrix.}
+\item{Rx}{Global predictor correlation matrix used by the LARS proposer (p x p).}
 
-\item{ry}{Global robust predictor-response correlation vector.}
+\item{ry}{Global predictor-response correlation vector used by the LARS proposer (length p).}
 
-\item{x.imp}{Imputed design matrix (for CV).}
+\item{x}{Raw design matrix (n x p). Used for foldwise preprocessing if requested.}
 
-\item{y.imp}{Imputed response vector (for CV).}
+\item{y}{Raw response vector (length n). Used for foldwise preprocessing if requested.}
 
-\item{n_models}{Number of models (K).}
+\item{x.imp}{Globally preprocessed design matrix (n x p), used when \code{cv_preprocess="global"}.}
 
-\item{max_predictors}{Maximum total predictors to select.}
+\item{y.imp}{Globally preprocessed response vector (length n), used when \code{cv_preprocess="global"}.}
 
-\item{tolerance}{Stopping tolerance.}
+\item{n_models}{Number of models in the ensemble (K).}
+
+\item{max_predictors}{Maximum total number of predictors to select across all models.}
+
+\item{tolerance}{Relative improvement tolerance for stopping (\eqn{\tau}).}
+
+\item{x_preprocess}{Character. Preprocessing method for predictors in the CV loop
+(e.g., \code{"ddc"} or \code{"none"}).}
+
+\item{y_preprocess}{Character. Preprocessing method for response in the CV loop
+(e.g., \code{"wrap"}, \code{"robust_z"}, or \code{"none"}).}
+
+\item{cv_preprocess}{Character. CV preprocessing mode: \code{"global"} or \code{"foldwise"}.}
+
+\item{cv_fit}{Character. Inner CV fitting method used by \code{computeCVError}
+(e.g., \code{"ls"} or \code{"huber"}).}
+
+\item{cv_loss}{Character. CV scoring loss used by \code{computeCVError}
+(e.g., \code{"mse"}, \code{"trimmed"}, or \code{"huber"}).}
+
+\item{cv_folds}{Integer. Number of CV folds.}
 }
 \value{
-A list containing the final active sets.
+A list with component:
+\describe{
+  \item{\code{active.sets}}{A list of length \code{n_models}, where each element is an integer
+  vector of selected variable indices for that sub-model.}
+}
 }
 \description{
-Implements Stage 2 of the FSCRE algorithm: the iterative competitive selection.
+Implements Stage 2 of the FSCRE algorithm: the iterative competitive selection
+using a proposer–arbiter mechanism. Candidate moves are proposed by a robust
+LARS step computed from the (robust) correlation inputs, and accepted by an
+arbiter based on cross-validated predictive improvement.
+
+The function supports two CV preprocessing modes:
+\itemize{
+  \item \code{cv_preprocess = "global"}: CV is computed on the globally preprocessed
+  training data \code{(x.imp, y.imp)}.
+  \item \code{cv_preprocess = "foldwise"}: preprocessing is fitted on each CV fold's
+  training subset and applied to that fold's validation subset (via
+  \code{cellWise::DDCpredict} for \code{x_preprocess="ddc"} and by reusing the training
+  fold's location/scale for \code{y_preprocess="wrap"}).
+}
+
+The selection step terminates when no candidate yields a strictly positive CV
+improvement, or when the best relative improvement falls below \code{tolerance}.
+}
+\seealso{
+\code{\link{getLarsProposal}}, \code{\link{computeCVError}}, \code{\link{computeRobustFoundation}}
 }
 \keyword{internal}
