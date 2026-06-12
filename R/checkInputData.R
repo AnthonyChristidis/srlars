@@ -9,7 +9,13 @@
 #' @param n_models Number of models in the ensemble.
 #' @param tolerance Relative improvement tolerance for stopping.
 #' @param max_predictors Maximum total number of variables to select.
-#' @param robust Logical.
+#' @param x_preprocess X cleaning method.
+#' @param y_preprocess y cleaning method.
+#' @param cor_estimator Correlation method.
+#' @param cv_preprocess Foldwise or global CV.
+#' @param cv_loss Arbiter loss function.
+#' @param cv_fit Arbiter fit function.
+#' @param cv_folds Number of CV folds.
 #' @param compute_coef Logical.
 #'
 #' @return NULL. Stops execution with an error message if invalid inputs are detected.
@@ -20,7 +26,13 @@ checkInputData <- function(x, y,
                            n_models,
                            tolerance,
                            max_predictors,
-                           robust,
+                           x_preprocess,
+                           y_preprocess,
+                           cor_estimator,
+                           cv_preprocess,
+                           cv_loss,
+                           cv_fit,
+                           cv_folds,
                            compute_coef) {
 
     # 1. Checking x and y
@@ -32,14 +44,17 @@ checkInputData <- function(x, y,
         stop("y should belong to one of the following classes: matrix, numeric")
     }
 
-    # Note: Removed check for NAs/NaNs/Inf in x and y because
-    # DDC is explicitly designed to handle them. We should allow them if robust=TRUE.
-    if (!robust) {
+    # If NO preprocessing is selected, check for NAs/NaNs/Inf.
+    # If preprocessing IS selected, allow them because DDC/wrap can handle them.
+    if (x_preprocess == "none") {
         if (any(anyNA(x), any(is.nan(x)), any(is.infinite(x)))) {
-            stop("x should not have missing, infinite or nan values when robust=FALSE")
+            stop("x should not have missing, infinite or nan values when x_preprocess='none'")
         }
+    }
+    
+    if (y_preprocess == "none") {
         if (any(anyNA(y), any(is.nan(y)), any(is.infinite(y)))) {
-            stop("y should not have missing, infinite or nan values when robust=FALSE")
+            stop("y should not have missing, infinite or nan values when y_preprocess='none'")
         }
     }
 
@@ -63,14 +78,7 @@ checkInputData <- function(x, y,
         }
     }
 
-    # # 3. Checking tolerance (tau)
-    # if (!inherits(tolerance, "numeric")) {
-    #     stop("tolerance should be numeric")
-    # } else if (tolerance < 0) {
-    #     stop("tolerance should be non-negative")
-    # }
-
-    # 4. Checking max_predictors
+    # 3. Checking max_predictors
     if (!is.null(max_predictors)) {
         if (!inherits(max_predictors, "numeric")) {
             stop("max_predictors should be numeric")
@@ -81,11 +89,13 @@ checkInputData <- function(x, y,
             warning("max_predictors is larger than the number of variables in x. It will be capped at p.")
         }
     }
+    
+    # 4. Checking cv_folds
+    if (!inherits(cv_folds, "numeric") || cv_folds <= 1 || cv_folds != floor(cv_folds)) {
+        stop("cv_folds should be a positive integer greater than 1")
+    }
 
     # 5. Check logical flags
-    if (!(robust %in% c(TRUE, FALSE)))
-        stop("robust should be TRUE or FALSE.")
-
     if (!(compute_coef %in% c(TRUE, FALSE)))
         stop("compute_coef should be TRUE or FALSE.")
 }
