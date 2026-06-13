@@ -17,7 +17,7 @@
 #' @param y_preprocess Character. "wrap" (default) for univariate robustification, "robust_z", or "none".
 #' @param cor_estimator Character. "wrap" (default) for robust PSD correlation, or "pearson".
 #' @param cv_preprocess Character. "global" (default) or "foldwise" (to prevent data leakage).
-#' @param cv_fit Character. "ls" (default) or "huber" for the inner arbiter fitting method.
+#' @param cv_fit Character. "huber" (default) or "ls" for the inner arbiter fitting method.
 #' @param cv_loss Character. "huber" (default), "trimmed", or "mse" for arbiter scoring.
 #' @param cv_folds Integer. Number of cross-validation folds. Default is 5.
 #' @param compute_coef Logical. If TRUE, fits the final robust MM-models. Default is TRUE.
@@ -81,7 +81,7 @@
 #'                        y_preprocess = "wrap",
 #'                        cor_estimator = "wrap",
 #'                        cv_preprocess = "global",
-#'                        cv_fit = "ls",
+#'                        cv_fit = "huber",
 #'                        cv_loss = "huber",
 #'                        compute_coef = TRUE)
 #'
@@ -96,7 +96,7 @@ srlars <- function(x, y,
                    y_preprocess = c("wrap", "robust_z", "none"),
                    cor_estimator = c("wrap", "pearson"),
                    cv_preprocess = c("global", "foldwise"),
-                   cv_fit = c("ls", "huber"),
+                   cv_fit = c("huber", "ls"),
                    cv_loss = c("huber", "trimmed", "mse"),
                    cv_folds = 5,
                    compute_coef = TRUE) {

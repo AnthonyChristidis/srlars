@@ -14,7 +14,7 @@ srlars(
   y_preprocess = c("wrap", "robust_z", "none"),
   cor_estimator = c("wrap", "pearson"),
   cv_preprocess = c("global", "foldwise"),
-  cv_fit = c("ls", "huber"),
+  cv_fit = c("huber", "ls"),
   cv_loss = c("huber", "trimmed", "mse"),
   cv_folds = 5,
   compute_coef = TRUE
@@ -39,7 +39,7 @@ srlars(
 
 \item{cv_preprocess}{Character. "global" (default) or "foldwise" (to prevent data leakage).}
 
-\item{cv_fit}{Character. "ls" (default) or "huber" for the inner arbiter fitting method.}
+\item{cv_fit}{Character. "huber" (default) or "ls" for the inner arbiter fitting method.}
 
 \item{cv_loss}{Character. "huber" (default), "trimmed", or "mse" for arbiter scoring.}
 
@@ -104,7 +104,7 @@ ensemble_fit <- srlars(x_train, y,
                        y_preprocess = "wrap",
                        cor_estimator = "wrap",
                        cv_preprocess = "global",
-                       cv_fit = "ls",
+                       cv_fit = "huber",
                        cv_loss = "huber",
                        compute_coef = TRUE)
 
