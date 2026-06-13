@@ -17,3 +17,6 @@
 * Added **leakage-free foldwise CV preprocessing** option (`cv_preprocess = "foldwise"`) using `cellWise::DDCpredict()` and foldwise response transforms.
 * Added robust arbiter options: **Huber/trimmed/MSE scoring** and optional **Huber IRLS fitting** inside the CV loop (`cv_fit = "huber"`).
 * Updated internal selection loop stopping logic to require **strictly positive CV improvement** before accepting a variable.
+
+# srlars 3.0.1
+* Make `cv_fit = "huber"` the default.
