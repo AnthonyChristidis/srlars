@@ -1,7 +1,6 @@
 [![CRAN\_Status\_Badge](https://www.r-pkg.org/badges/version/srlars)](https://cran.r-project.org/package=srlars)
 [![CRAN Data](https://www.r-pkg.org/badges/last-release/srlars)](https://cran.r-project.org/package=srlars)
 [![Downloads](https://cranlogs.r-pkg.org/badges/srlars)](https://cran.r-project.org/package=srlars)
-[![arXiv](https://img.shields.io/badge/arXiv-2603.20940-b31b1b.svg)](https://arxiv.org/abs/2603.20940)
 
 # srlars: Fast and Scalable Cellwise-Robust Ensembles
 
