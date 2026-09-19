@@ -179,3 +179,97 @@ test_that("max_share forces distinct seeds when 1 < max_share < n_models, but no
   usage_full <- table(unlist(fit_full$active.sets))
   expect_true(all(usage_full <= 6))
 })
+
+test_that("n_min defaults to no floor and forces growth of otherwise-small models when set", {
+
+  # Pure noise: x and y are unrelated, so the normal positive-benefit/tolerance
+  # stopping rule should halt selection almost immediately without n_min.
+  set.seed(0)
+  n <- 50
+  p <- 20
+  x <- matrix(rnorm(n * p), nrow = n, ncol = p)
+  colnames(x) <- paste0("V", 1:p)
+  y <- rnorm(n)
+
+  common_args <- list(
+    x = x, y = y,
+    n_models = 4,
+    max_share = 1,
+    tolerance = 1e-4,
+    x_preprocess = "ddc",
+    y_preprocess = "wrap",
+    cor_estimator = "wrap",
+    cv_preprocess = "global",
+    cv_fit = "huber",
+    cv_loss = "huber",
+    cv_folds = 5,
+    compute_coef = FALSE
+  )
+
+  # --- Default equivalence: omitting n_min == n_min = NULL ---
+  set.seed(321)
+  fit_default <- do.call(srlars, common_args)
+
+  set.seed(321)
+  fit_explicit_null <- do.call(srlars, c(common_args, list(n_min = NULL)))
+
+  expect_identical(fit_default$active.sets, fit_explicit_null$active.sets)
+
+  # --- Without n_min, active sets on pure noise should generally stay small ---
+  sizes_default <- vapply(fit_default$active.sets, length, integer(1))
+
+  # --- With n_min, every model must reach the floor (plenty of noise variables
+  #     available, max_share = 1 disjoint, floor well within min(n - 1, p)) ---
+  set.seed(321)
+  fit_floor <- do.call(srlars, c(common_args, list(n_min = 3)))
+  sizes_floor <- vapply(fit_floor$active.sets, length, integer(1))
+  expect_true(all(sizes_floor >= 3))
+
+  # The floor should have forced at least some growth relative to the unforced run
+  expect_true(sum(sizes_floor) > sum(sizes_default))
+
+  # --- max_share usage cap still respected even while forcing ---
+  usage_floor <- table(unlist(fit_floor$active.sets))
+  expect_true(all(usage_floor <= 1))
+
+  # --- Validation errors ---
+  expect_error(do.call(srlars, c(common_args, list(n_min = 0))))
+  expect_error(do.call(srlars, c(common_args, list(n_min = 2.5))))
+  expect_error(do.call(srlars, c(common_args, list(n_min = n)))) # exceeds n - 1
+  expect_error(do.call(srlars, c(common_args, list(n_min = p + 1)))) # exceeds p
+})
+
+test_that("n_min composes with max_share seed-diversity when both are active", {
+
+  set.seed(0)
+  n <- 60
+  p <- 25
+  x <- matrix(rnorm(n * p), nrow = n, ncol = p)
+  colnames(x) <- paste0("V", 1:p)
+  y <- rnorm(n) # pure noise, forces the floor to bind
+
+  set.seed(321)
+  fit <- srlars(x, y,
+               n_models = 5,
+               max_share = 2,
+               n_min = 2,
+               tolerance = 1e-4,
+               x_preprocess = "ddc",
+               y_preprocess = "wrap",
+               cor_estimator = "wrap",
+               cv_preprocess = "global",
+               cv_fit = "huber",
+               cv_loss = "huber",
+               cv_folds = 5,
+               compute_coef = FALSE)
+
+  sizes <- vapply(fit$active.sets, length, integer(1))
+  expect_true(all(sizes >= 2))
+
+  usage <- table(unlist(fit$active.sets))
+  expect_true(all(usage <= 2))
+
+  first_picks <- vapply(fit$active.sets, function(s) if (length(s) > 0) s[1] else NA_integer_, integer(1))
+  seeds_present <- first_picks[!is.na(first_picks)]
+  expect_equal(length(seeds_present), length(unique(seeds_present)))
+})

@@ -19,6 +19,14 @@
 #' sub-model's first pick, up to \code{max_share} total uses. When \code{max_share = n_models},
 #' this seed restriction is lifted entirely and sub-models are free to become identical.
 #' @param tolerance Relative improvement tolerance for stopping (tau). Default is 1e-8.
+#' @param n_min Integer or NULL. Minimum number of variables each sub-model is guaranteed to
+#' receive (subject to availability), even if a candidate does not clear the usual positive-benefit
+#' or \code{tolerance} improvement requirements. Default is NULL, i.e. no floor is enforced (the
+#' original behavior: a sub-model can stop growing as soon as no candidate across the whole
+#' ensemble shows sufficient CV improvement). Must satisfy \code{n_min <= min(n - 1, p)}. The
+#' floor never bypasses \code{max_share}/diversity restrictions on which variables are available
+#' to a sub-model -- only the CV-benefit acceptance requirement is relaxed for sub-models below
+#' the floor.
 #' @param max_predictors Maximum total number of variables to select across all models. Default is n * n_models.
 #' @param x_preprocess Character. "ddc" (default) for cellwise cleaning, or "none".
 #' @param y_preprocess Character. "wrap" (default) for univariate robustification, "robust_z", or "none".
@@ -99,6 +107,7 @@ srlars <- function(x, y,
                    n_models = 5,
                    max_share = 1,
                    tolerance = 1e-8,
+                   n_min = NULL,
                    max_predictors = NULL,
                    x_preprocess = c("ddc", "none"),
                    y_preprocess = c("wrap", "robust_z", "none"),
@@ -133,7 +142,8 @@ srlars <- function(x, y,
                    cv_fit,
                    cv_folds,
                    compute_coef,
-                   max_share = max_share)
+                   max_share = max_share,
+                   n_min = n_min)
     
     # _________
     # 2. Setup
@@ -175,7 +185,7 @@ srlars <- function(x, y,
                                               n_models, max_predictors, tolerance,
                                               x_preprocess, y_preprocess,
                                               cv_preprocess, cv_fit, cv_loss, cv_folds,
-                                              max_share = max_share)
+                                              max_share = max_share, n_min = n_min)
 
     # ______________________
     # 5. Stage 3: Final Fit

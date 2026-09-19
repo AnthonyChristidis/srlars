@@ -43,6 +43,10 @@
 #'   n_models}, each sub-model's first selected variable is forced distinct across sub-models;
 #'   sharing is only permitted afterward. This restriction is lifted when \code{max_share =
 #'   n_models}.
+#' @param n_min Integer or NULL. Minimum number of variables each sub-model is guaranteed
+#'   (subject to availability under the \code{max_share}/diversity pool restrictions), even if no
+#'   candidate clears the usual positive-benefit or \code{tolerance} requirement. Default is NULL
+#'   (no floor enforced, original behavior).
 #'
 #' @return A list with component:
 #' \describe{
@@ -68,7 +72,8 @@ performSelectionLoop <- function(Rx, ry,
                                  cv_fit,
                                  cv_loss,
                                  cv_folds,
-                                 max_share = 1) {
+                                 max_share = 1,
+                                 n_min = NULL) {
 
     n <- nrow(x)
     p <- ncol(x)
@@ -212,6 +217,55 @@ performSelectionLoop <- function(Rx, ry,
                 current.correlations[[k]],
                 pool.k
             )
+        }
+
+        # A2. Floor Enforcement (n_min)
+        # Force-accept a candidate for a sub-model still below the floor, bypassing the
+        # positive-benefit/tolerance requirement below -- but never bypassing the pool
+        # restrictions already applied above (max_share usage cap and seed diversity).
+        if (!is.null(n_min)) {
+            below.floor <- which(vapply(active.sets, length, integer(1)) < n_min)
+            below.floor <- below.floor[!vapply(candidates[below.floor],
+                                               function(cand) is.null(cand$next_var),
+                                               logical(1))]
+
+            if (length(below.floor) > 0) {
+                forced.benefits <- rep(-Inf, length(below.floor))
+                for (i in seq_along(below.floor)) {
+                    k <- below.floor[i]
+                    cand <- candidates[[k]]
+                    new.error <- computeCVError(cv_data,
+                                                c(active.sets[[k]], cand$next_var),
+                                                cv_fit, cv_loss)
+                    forced.benefits[i] <- current.cv.errors[k] - new.error
+                }
+
+                if (any(is.finite(forced.benefits))) {
+                    best.forced <- max(forced.benefits[is.finite(forced.benefits)])
+                    best.local <- which(forced.benefits == best.forced)
+                    winner.local <- if (length(best.local) > 1) sample(best.local, 1) else best.local
+                    winner.k <- below.floor[winner.local]
+
+                    winner.cand <- candidates[[winner.k]]
+                    winner.var <- winner.cand$next_var
+                    winner.base.error <- current.cv.errors[winner.k]
+                    winner.benefit <- forced.benefits[winner.local]
+
+                    if (length(active.sets[[winner.k]]) == 0) {
+                        seed.vars <- c(seed.vars, winner.var)
+                    }
+                    active.sets[[winner.k]] <- c(active.sets[[winner.k]], winner.var)
+                    sign.vectors[[winner.k]] <- c(sign.vectors[[winner.k]], winner.cand$next_sign)
+
+                    current.cv.errors[winner.k] <- winner.base.error - winner.benefit
+                    current.correlations[[winner.k]] <- current.correlations[[winner.k]] -
+                        (winner.cand$gamma * winner.cand$a_vec)
+
+                    var.usage[winner.var] <- var.usage[winner.var] + 1L
+                    n.selected <- n.selected + 1
+                    next
+                }
+            }
         }
 
         # B. Evaluate Benefits

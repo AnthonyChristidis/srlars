@@ -20,7 +20,8 @@ performSelectionLoop(
   cv_fit,
   cv_loss,
   cv_folds,
-  max_share = 1
+  max_share = 1,
+  n_min = NULL
 )
 }
 \arguments{
@@ -63,6 +64,11 @@ variable may appear. Default is 1 (fully disjoint sub-models). For \code{1 < max
 n_models}, each sub-model's first selected variable is forced distinct across sub-models;
 sharing is only permitted afterward. This restriction is lifted when \code{max_share =
 n_models}.}
+
+\item{n_min}{Integer or NULL. Minimum number of variables each sub-model is guaranteed
+(subject to availability under the \code{max_share}/diversity pool restrictions), even if no
+candidate clears the usual positive-benefit or \code{tolerance} requirement. Default is NULL
+(no floor enforced, original behavior).}
 }
 \value{
 A list with component:
