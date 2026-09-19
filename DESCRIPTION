@@ -18,5 +18,8 @@ Biarch: true
 Imports: cellWise,
          robustbase,
          mvnfast
-Suggests: testthat
+Suggests: testthat,
+          knitr,
+          rmarkdown
+VignetteBuilder: knitr
 RoxygenNote: 7.3.3

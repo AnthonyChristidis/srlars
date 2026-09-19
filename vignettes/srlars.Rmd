@@ -1,0 +1,219 @@
+---
+title: "Getting Started with srlars"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with srlars}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## Introduction
+
+`srlars` fits the Fast and Scalable Cellwise-Robust Ensemble (FSCRE) algorithm: a
+competitive ensemble of `n_models` sparse sub-models, built on a cellwise-robust
+foundation (Detect Deviating Cells imputation and wrapping-based robust correlations)
+so that variable selection and prediction remain reliable when individual *cells* of
+the predictor matrix -- not necessarily whole observations -- are contaminated.
+
+This vignette walks through a single, fast-running example: simulating a small
+contaminated dataset, fitting `srlars()`, and inspecting its two controls over how
+much the sub-models may share variables (`max_share`) and how small they may end up
+(`n_min`). It ends with a short note on `cv.srlars()`, which chooses `max_share`
+automatically.
+
+```{r setup}
+library(srlars)
+library(mvnfast)
+library(cellWise)
+```
+
+## Simulating a small, cellwise-contaminated dataset
+
+We simulate `p = 30` predictors in two correlated blocks of 3 active variables each
+(6 active predictors total), and contaminate a fraction of the cells of the training
+predictors with correlation outliers -- values that distort the multivariate
+dependence structure without necessarily standing out in any single variable. The
+test set is left clean, as would be the case for genuinely new data.
+
+```{r sim-setup}
+set.seed(0)
+
+n <- 60          # training observations
+m <- 500         # test observations
+p <- 30          # predictors
+p.active <- 6    # truly active predictors
+group.size <- 3
+rho.within <- 0.7
+rho.between <- 0.1
+snr <- 3
+contamination.prop <- 0.15
+gamma <- 3       # contamination strength
+n_models <- 4
+
+# Block-correlation structure among the active predictors
+sigma.mat <- matrix(0, p, p)
+sigma.mat[1:p.active, 1:p.active] <- rho.between
+for (g in 0:(p.active / group.size - 1)) {
+  idx <- (g * group.size + 1):(g * group.size + group.size)
+  sigma.mat[idx, idx] <- rho.within
+}
+diag(sigma.mat) <- 1
+
+true.beta <- c(runif(p.active, 0, 5) * (-1) ^ rbinom(p.active, 1, 0.7),
+              rep(0, p - p.active))
+sigma <- as.numeric(sqrt(t(true.beta) %*% sigma.mat %*% true.beta) / sqrt(snr))
+```
+
+```{r sim-contam}
+contam_correlation <- function(X, prop, sigma_mat, gamma) {
+  n <- nrow(X); p <- ncol(X)
+  idx <- sample.int(n * p, size = round(n * p * prop))
+  rows <- ((idx - 1) %% n) + 1
+  cols <- ((idx - 1) %/% n) + 1
+
+  for (i in 1:n) {
+    J <- cols[rows == i]
+    if (length(J) == 0) next
+    if (length(J) == 1) { X[i, J] <- gamma * 3; next }
+    SigmaJ <- sigma_mat[J, J, drop = FALSE]
+    ev <- eigen(SigmaJ, symmetric = TRUE)
+    vmin <- ev$vectors[, ncol(ev$vectors)]
+    denom <- mahalanobis(t(vmin), center = rep(0, length(J)), cov = SigmaJ)
+    X[i, J] <- gamma * sqrt(length(J)) * (vmin / sqrt(denom))
+  }
+  X
+}
+
+# Training data (contaminated predictors)
+x_train <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
+y_train <- as.numeric(x_train %*% true.beta + rnorm(n, 0, sigma))
+x_train <- contam_correlation(x_train, contamination.prop, sigma.mat, gamma)
+colnames(x_train) <- paste0("V", 1:p)
+
+# Test data (clean)
+x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
+y_test <- as.numeric(x_test %*% true.beta + rnorm(m, 0, sigma))
+colnames(x_test) <- colnames(x_train)
+```
+
+A small helper to score selection (precision/recall against the known active set)
+and prediction (MSPE, scaled by the noise variance) is all we need throughout:
+
+```{r metrics-helper}
+get_metrics <- function(fit) {
+  coefs <- as.numeric(coef(fit))[-1]
+  sel <- which(coefs != 0)
+  truth <- which(true.beta != 0)
+
+  precision <- length(intersect(sel, truth)) / max(length(sel), 1)
+  recall <- length(intersect(sel, truth)) / length(truth)
+
+  preds <- as.numeric(predict(fit, x_test))
+  mspe <- mean((y_test - preds)^2) / sigma^2
+
+  c(Precision = precision, Recall = recall, MSPE = mspe,
+   Mean.active.size = mean(vapply(fit$active.sets, length, integer(1))))
+}
+```
+
+## Fitting srlars()
+
+By default, `max_share = 1`: the `n_models` sub-models are fully disjoint -- no
+variable can be selected by more than one of them.
+
+```{r fit-default}
+fit_default <- srlars(x_train, y_train,
+                      n_models = n_models,
+                      tolerance = 1e-4,
+                      x_preprocess = "ddc",
+                      y_preprocess = "wrap",
+                      cor_estimator = "wrap",
+                      cv_preprocess = "global",
+                      cv_fit = "huber",
+                      cv_loss = "huber",
+                      cv_folds = 5,
+                      compute_coef = TRUE)
+
+fit_default$active.sets
+get_metrics(fit_default)
+```
+
+`coef()` and `predict()` average across the ensemble's sub-models:
+
+```{r coef-predict}
+coef(fit_default)[1:5] # intercept + first few slopes
+predict(fit_default, x_test[1:5, ])
+```
+
+## Controlling how much sub-models can share: `max_share`
+
+`max_share` (1 to `n_models`) relaxes disjointness: a variable may be selected by up
+to `max_share` sub-models. At the other extreme, `max_share = n_models` places no
+restriction on sharing at all -- sub-models are then free to converge on the same
+variables. Refitting on the same data:
+
+```{r fit-shared}
+fit_shared <- srlars(x_train, y_train,
+                     n_models = n_models,
+                     max_share = n_models,
+                     tolerance = 1e-4,
+                     x_preprocess = "ddc",
+                     y_preprocess = "wrap",
+                     cor_estimator = "wrap",
+                     cv_preprocess = "global",
+                     cv_fit = "huber",
+                     cv_loss = "huber",
+                     cv_folds = 5,
+                     compute_coef = TRUE)
+
+rbind(`max_share = 1 (default)` = get_metrics(fit_default),
+     `max_share = n_models`    = get_metrics(fit_shared))
+```
+
+Whether sharing helps or hurts is dataset-dependent: more sharing means fewer
+independent sub-models exploring different variables (which can hurt recall in a
+high-dimensional, many-active-variable setting like this one), but it also lets the
+ensemble refit the same, well-supported variables multiple times when a dataset does
+not need broad exploration. `cv.srlars()` (see below) picks `max_share` for you by
+cross-validation rather than requiring this kind of manual comparison.
+
+## Guaranteeing a minimum sub-model size: `n_min`
+
+The selection loop can stop early -- across the *entire* ensemble at once -- as soon
+as no sub-model's next candidate variable shows a sufficient cross-validated
+improvement. On some datasets this can leave sub-models quite small. `n_min` sets a
+floor: sub-models below it keep receiving their best available variable even if it
+doesn't clear the usual improvement bar (though it can never violate the
+`max_share` diversity restrictions above).
+
+```{r fit-nmin}
+fit_floor <- srlars(x_train, y_train,
+                    n_models = n_models,
+                    n_min = 5,
+                    tolerance = 1e-4,
+                    x_preprocess = "ddc",
+                    y_preprocess = "wrap",
+                    cor_estimator = "wrap",
+                    cv_preprocess = "global",
+                    cv_fit = "huber",
+                    cv_loss = "huber",
+                    cv_folds = 5,
+                    compute_coef = TRUE)
+
+rbind(`n_min = NULL (default)` = get_metrics(fit_default),
+     `n_min = 5`               = get_metrics(fit_floor))
+```
+
+## Choosing `max_share` automatically: `cv.srlars()`
+
+Rather than comparing `max_share` values by hand as above, `cv.srlars()` chooses it
+by an outer cross-validation loop scored on held-out *ensemble* prediction error, and
+returns the refit at the cross-validated optimum. The expensive cellwise-robust
+preprocessing stage is computed once per outer fold and reused across every candidate
+value, so this is efficient relative to a naive grid search. The object it returns
+is classed so that `coef()` and `predict()` work on it exactly as they do above --
+no new methods to learn. See `?cv.srlars` for details.
