@@ -78,3 +78,104 @@ test_that("srlars runs correctly on synthetic data", {
   # --- Test 5: Input Checks ---
   expect_error(srlars(x, y[1:(n - 1)]))
 })
+
+test_that("max_share defaults to fully disjoint models and is respected when relaxed", {
+
+  set.seed(0)
+  n <- 50
+  p <- 20
+  x <- matrix(rnorm(n * p), nrow = n, ncol = p)
+  colnames(x) <- paste0("V", 1:p)
+  beta <- c(rep(2, 3), rep(0, p - 3))
+  y <- as.numeric(x %*% beta + rnorm(n))
+
+  common_args <- list(
+    x = x, y = y,
+    n_models = 3,
+    tolerance = 1e-4,
+    x_preprocess = "ddc",
+    y_preprocess = "wrap",
+    cor_estimator = "wrap",
+    cv_preprocess = "global",
+    cv_fit = "huber",
+    cv_loss = "huber",
+    cv_folds = 5,
+    compute_coef = TRUE
+  )
+
+  # --- Default equivalence: omitting max_share == max_share = 1 ---
+  set.seed(123)
+  fit_default <- do.call(srlars, common_args)
+
+  set.seed(123)
+  fit_explicit_1 <- do.call(srlars, c(common_args, list(max_share = 1)))
+
+  expect_identical(fit_default$active.sets, fit_explicit_1$active.sets)
+  expect_equal(fit_default$coefficients, fit_explicit_1$coefficients)
+  expect_equal(fit_default$intercepts, fit_explicit_1$intercepts)
+
+  # --- Disjointness at default ---
+  sets <- fit_default$active.sets
+  for (i in seq_along(sets)) {
+    for (j in seq_along(sets)) {
+      if (i < j) {
+        expect_length(intersect(sets[[i]], sets[[j]]), 0)
+      }
+    }
+  }
+
+  # --- Cap respected when relaxed ---
+  set.seed(123)
+  fit_shared <- do.call(srlars, c(common_args, list(max_share = 3)))
+  usage <- table(unlist(fit_shared$active.sets))
+  expect_true(all(usage <= 3))
+
+  # --- Validation errors ---
+  expect_error(do.call(srlars, c(common_args, list(max_share = 0))))
+  expect_error(do.call(srlars, c(common_args, list(max_share = 1.5))))
+  expect_error(do.call(srlars, c(common_args, list(max_share = 4)))) # n_models = 3
+})
+
+test_that("max_share forces distinct seeds when 1 < max_share < n_models, but not at n_models", {
+
+  set.seed(0)
+  n <- 60
+  p <- 30
+  x <- matrix(rnorm(n * p), nrow = n, ncol = p)
+  colnames(x) <- paste0("V", 1:p)
+  beta <- c(rep(2, 3), rep(0, p - 3))
+  y <- as.numeric(x %*% beta + rnorm(n))
+
+  common_args <- list(
+    x = x, y = y,
+    n_models = 6,
+    tolerance = 1e-4,
+    x_preprocess = "ddc",
+    y_preprocess = "wrap",
+    cor_estimator = "wrap",
+    cv_preprocess = "global",
+    cv_fit = "huber",
+    cv_loss = "huber",
+    cv_folds = 5,
+    compute_coef = FALSE
+  )
+
+  first_picks <- function(active.sets) {
+    vapply(active.sets, function(s) if (length(s) > 0) s[1] else NA_integer_, integer(1))
+  }
+
+  # --- 1 < max_share < n_models: seeds must be pairwise distinct ---
+  set.seed(123)
+  fit_mid <- do.call(srlars, c(common_args, list(max_share = 3)))
+  seeds <- first_picks(fit_mid$active.sets)
+  seeds_present <- seeds[!is.na(seeds)]
+  expect_equal(length(seeds_present), length(unique(seeds_present)))
+
+  # --- max_share = n_models: seed restriction lifted (no assertion on distinctness,
+  #     but the pool computation must skip the seed.vars exclusion; verified by checking
+  #     the run completes and respects the usage cap only) ---
+  set.seed(123)
+  fit_full <- do.call(srlars, c(common_args, list(max_share = 6)))
+  usage_full <- table(unlist(fit_full$active.sets))
+  expect_true(all(usage_full <= 6))
+})

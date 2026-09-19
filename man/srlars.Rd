@@ -8,6 +8,7 @@ srlars(
   x,
   y,
   n_models = 5,
+  max_share = 1,
   tolerance = 1e-08,
   max_predictors = NULL,
   x_preprocess = c("ddc", "none"),
@@ -26,6 +27,14 @@ srlars(
 \item{y}{Response vector (n x 1).}
 
 \item{n_models}{Number of models in the ensemble (K). Default is 5.}
+
+\item{max_share}{Integer. Maximum number of sub-models (1 to n_models) in which a given
+variable may appear. Default is 1, i.e. fully disjoint sub-models (the original behavior).
+When \code{1 < max_share < n_models}, each sub-model's first selected variable is forced to
+be distinct across sub-models (preventing several sub-models from redundantly duplicating the
+same strongest cold-start predictor); sharing is only permitted for variables added after a
+sub-model's first pick, up to \code{max_share} total uses. When \code{max_share = n_models},
+this seed restriction is lifted entirely and sub-models are free to become identical.}
 
 \item{tolerance}{Relative improvement tolerance for stopping (tau). Default is 1e-8.}
 

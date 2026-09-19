@@ -17,7 +17,8 @@ checkInputData(
   cv_loss,
   cv_fit,
   cv_folds,
-  compute_coef
+  compute_coef,
+  max_share = NULL
 )
 }
 \arguments{
@@ -46,6 +47,8 @@ checkInputData(
 \item{cv_folds}{Number of CV folds.}
 
 \item{compute_coef}{Logical.}
+
+\item{max_share}{Maximum number of sub-models a variable may appear in. NULL skips this check.}
 }
 \value{
 NULL. Stops execution with an error message if invalid inputs are detected.

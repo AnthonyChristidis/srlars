@@ -19,7 +19,8 @@ performSelectionLoop(
   cv_preprocess,
   cv_fit,
   cv_loss,
-  cv_folds
+  cv_folds,
+  max_share = 1
 )
 }
 \arguments{
@@ -56,6 +57,12 @@ performSelectionLoop(
 (e.g., \code{"mse"}, \code{"trimmed"}, or \code{"huber"}).}
 
 \item{cv_folds}{Integer. Number of CV folds.}
+
+\item{max_share}{Integer. Maximum number of sub-models (1 to n_models) in which a given
+variable may appear. Default is 1 (fully disjoint sub-models). For \code{1 < max_share <
+n_models}, each sub-model's first selected variable is forced distinct across sub-models;
+sharing is only permitted afterward. This restriction is lifted when \code{max_share =
+n_models}.}
 }
 \value{
 A list with component:

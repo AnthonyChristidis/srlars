@@ -17,6 +17,7 @@
 #' @param cv_fit Arbiter fit function.
 #' @param cv_folds Number of CV folds.
 #' @param compute_coef Logical.
+#' @param max_share Maximum number of sub-models a variable may appear in. NULL skips this check.
 #'
 #' @return NULL. Stops execution with an error message if invalid inputs are detected.
 #'
@@ -33,7 +34,8 @@ checkInputData <- function(x, y,
                            cv_loss,
                            cv_fit,
                            cv_folds,
-                           compute_coef) {
+                           compute_coef,
+                           max_share = NULL) {
 
     # 1. Checking x and y
     if (all(!inherits(x, "matrix"), !inherits(x, "data.frame"))) {
@@ -75,6 +77,18 @@ checkInputData <- function(x, y,
             stop("n_models should be numeric")
         } else if (any(!n_models == floor(n_models), n_models <= 0)) {
             stop("n_models should be a positive integer greater than 0")
+        }
+    }
+
+    # 2b. Checking max_share
+    if (!is.null(max_share)) {
+        if (!is.numeric(max_share)) {
+            stop("max_share should be numeric")
+        } else if (any(!max_share == floor(max_share), max_share < 1)) {
+            stop("max_share should be a positive integer >= 1")
+        }
+        if (!is.null(n_models) && max_share > n_models) {
+            stop("max_share cannot exceed n_models")
         }
     }
 

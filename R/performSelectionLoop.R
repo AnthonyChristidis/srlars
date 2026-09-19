@@ -38,6 +38,11 @@
 #' @param cv_loss Character. CV scoring loss used by \code{computeCVError}
 #'   (e.g., \code{"mse"}, \code{"trimmed"}, or \code{"huber"}).
 #' @param cv_folds Integer. Number of CV folds.
+#' @param max_share Integer. Maximum number of sub-models (1 to n_models) in which a given
+#'   variable may appear. Default is 1 (fully disjoint sub-models). For \code{1 < max_share <
+#'   n_models}, each sub-model's first selected variable is forced distinct across sub-models;
+#'   sharing is only permitted afterward. This restriction is lifted when \code{max_share =
+#'   n_models}.
 #'
 #' @return A list with component:
 #' \describe{
@@ -62,7 +67,8 @@ performSelectionLoop <- function(Rx, ry,
                                  cv_preprocess,
                                  cv_fit,
                                  cv_loss,
-                                 cv_folds) {
+                                 cv_folds,
+                                 max_share = 1) {
 
     n <- nrow(x)
     p <- ncol(x)
@@ -169,7 +175,8 @@ performSelectionLoop <- function(Rx, ry,
         current.correlations[[k]] <- ry
     }
 
-    available.vars <- 1:p
+    var.usage <- integer(p)
+    seed.vars <- integer(0)
 
     current.cv.errors <- numeric(n_models)
     empty_error <- computeCVError(cv_data, integer(0), cv_fit, cv_loss)
@@ -182,17 +189,28 @@ performSelectionLoop <- function(Rx, ry,
     # 2. Main Proposer-Arbiter Loop
     # ______________________________
 
-    while (continue.selection && n.selected < max_predictors && length(available.vars) > 0) {
+    while (continue.selection && n.selected < max_predictors && any(var.usage < max_share)) {
 
         # A. Propose Candidates
         candidates <- vector("list", n_models)
         for (k in 1:n_models) {
+            pool.k <- which(var.usage < max_share)
+            if (length(active.sets[[k]]) > 0) {
+                pool.k <- setdiff(pool.k, active.sets[[k]])
+            } else if (max_share < n_models) {
+                # Force distinct seeds across sub-models when any sharing is allowed but not
+                # unrestricted: a variable already used as another model's first pick cannot
+                # be proposed as a fresh model's seed too, preventing several models from
+                # redundantly duplicating the same "obviously best" cold-start variable.
+                pool.k <- setdiff(pool.k, seed.vars)
+            }
+
             candidates[[k]] <- getLarsProposal(
                 Rx,
                 active.sets[[k]],
                 sign.vectors[[k]],
                 current.correlations[[k]],
-                available.vars
+                pool.k
             )
         }
 
@@ -232,6 +250,9 @@ performSelectionLoop <- function(Rx, ry,
         ratio <- max.ben / winner.base.error
 
         if (ratio > tolerance) {
+            if (length(active.sets[[winner.k]]) == 0) {
+                seed.vars <- c(seed.vars, winner.var)
+            }
             active.sets[[winner.k]] <- c(active.sets[[winner.k]], winner.var)
             sign.vectors[[winner.k]] <- c(sign.vectors[[winner.k]], winner.cand$next_sign)
 
@@ -239,7 +260,7 @@ performSelectionLoop <- function(Rx, ry,
             current.correlations[[winner.k]] <- current.correlations[[winner.k]] -
                 (winner.cand$gamma * winner.cand$a_vec)
 
-            available.vars <- setdiff(available.vars, winner.var)
+            var.usage[winner.var] <- var.usage[winner.var] + 1L
             n.selected <- n.selected + 1
         } else {
             continue.selection <- FALSE
