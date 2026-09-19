@@ -1,128 +1,90 @@
 [![CRAN\_Status\_Badge](https://www.r-pkg.org/badges/version/srlars)](https://cran.r-project.org/package=srlars)
-[![CRAN Data](https://www.r-pkg.org/badges/last-release/srlars)](https://cran.r-project.org/package=srlars) 
+[![CRAN Data](https://www.r-pkg.org/badges/last-release/srlars)](https://cran.r-project.org/package=srlars)
 [![Downloads](https://cranlogs.r-pkg.org/badges/srlars)](https://cran.r-project.org/package=srlars)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.20940-b31b1b.svg)](https://arxiv.org/abs/2603.20940)
 
-srlars
-================
+# srlars: Fast and Scalable Cellwise-Robust Ensembles
 
-This package provides functions for performing split robust least angle regression.
+High-dimensional data are often affected by **cellwise contamination**: individual
+*cells* of the predictor matrix deviate from the underlying structure without
+necessarily making the whole observation an outlier. Even a small fraction of
+contaminated cells can propagate across many observations, which is enough to
+mislead both classical variable selection methods and robust methods designed only
+for casewise (whole-observation) outliers.
 
----------------------------------------------------------------------------------------------
+`srlars` implements the **Fast and Scalable Cellwise-Robust Ensemble (FSCRE)**
+algorithm: a competitive ensemble of sparse sub-models built on a cellwise-robust
+foundation (Detect Deviating Cells imputation and wrapping-based robust
+correlations), constructed via a robust Least-Angle-Regression proposer and a
+cross-validation arbiter, then refit with robust MM-estimators. The method and its
+theoretical properties are described in:
 
-### Installation
+> Christidis, A., Pyneeandee, J., and Cohen Freue, G. (2026). *Fast and Scalable
+> Cellwise-Robust Ensembles for High-Dimensional Data*.
+> [arXiv:2603.20940](https://arxiv.org/abs/2603.20940)
 
-You can install the **stable** version on [R CRAN](https://cran.r-project.org/package=srlars).
+## Key features
 
-```{r installation, eval = FALSE}
+- **Cellwise-robust foundation** -- predictors are cleaned with `cellWise::DDC()`
+  and correlations are estimated with the wrapping transform, so estimation stays
+  reliable when individual cells (not whole rows) are contaminated.
+- **Competitive ensemble construction** -- `n_models` sub-models compete for
+  variables each round via cross-validated predictive improvement, rather than
+  being built independently.
+- **Controllable variable sharing** -- `max_share` sets how many sub-models a given
+  variable may appear in, from fully disjoint sub-models (the default) to
+  unrestricted sharing.
+- **Minimum sub-model size** -- `n_min` guarantees each sub-model reaches a minimum
+  number of variables even when the ensemble-wide stopping rule would otherwise cut
+  it short.
+- **Automatic tuning** -- `cv.srlars()` chooses `max_share` by cross-validation on
+  held-out ensemble prediction error, instead of comparing values by hand.
+
+## Installation
+
+You can install the **stable** version from [CRAN](https://cran.r-project.org/package=srlars):
+
+```r
 install.packages("srlars", dependencies = TRUE)
 ```
 
-You can install the **development** version from [GitHub](https://github.com/AnthonyChristidis/srlars)
+You can install the **development** version from [GitHub](https://github.com/AnthonyChristidis/srlars):
 
-``` r
+```r
 library(devtools)
 devtools::install_github("AnthonyChristidis/srlars")
 ```
 
-### Usage
+## Quick start
 
-``` r
+```r
 library(srlars)
-library(mvnfast)
 
-# --- 1. Simulation Parameters ---
+# x, y: a (possibly cellwise-contaminated) high-dimensional training set
+fit <- srlars(x, y,
+             n_models = 5,       # ensemble size
+             x_preprocess = "ddc",
+             y_preprocess = "wrap",
+             cor_estimator = "wrap",
+             cv_fit = "huber",
+             cv_loss = "huber")
 
-n <- 50
-p <- 100
-rho.within <- 0.8
-rho.between <- 0.2
-p.active <- 20
-group.size <- 5
-snr <- 3
-contamination.prop <- 0.1
+coef(fit)          # ensemble-averaged coefficients
+predict(fit, newx) # ensemble-averaged predictions
 
-# Setting the seed
-set.seed(0)
-
-# --- 2. Data Generation ---
-
-# Block correlation structure
-sigma.mat <- matrix(0, p, p)
-sigma.mat[1:p.active, 1:p.active] <- rho.between
-for(group in 0:(p.active/group.size - 1))
-  sigma.mat[(group*group.size+1):(group*group.size+group.size),
-  (group*group.size+1):(group*group.size+group.size)] <- rho.within
-diag(sigma.mat) <- 1
-
-# True coefficient vector
-true.beta <- c(runif(p.active, 0, 5)*(-1)^rbinom(p.active, 1, 0.7), rep(0, p - p.active))
-
-# Noise level
-sigma <- as.numeric(sqrt(t(true.beta) %*% sigma.mat %*% true.beta)/sqrt(snr))
-
-# Generate uncontaminated training data
-x <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
-colnames(x) <- paste0("V", 1:p)
-y <- as.numeric(x %*% true.beta + rnorm(n, 0, sigma))
-
-# Generate test data
-m <- 2e3
-x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
-colnames(x_test) <- paste0("V", 1:p)
-y_test <- as.numeric(x_test %*% true.beta + rnorm(m, 0, sigma))
-
-# --- 3. Introduce Contamination ---
-
-# Cellwise contamination
-contamination_indices <- sample(1:(n * p), round(n * p * contamination.prop))
-x_train <- x
-x_train[contamination_indices] <- runif(length(contamination_indices), -10, 10)
-y_train <- y
-
-# --- 4. Fit srlars Model ---
-
-# Fit the FSCRE ensemble
-# We use 5 sub-models and the new robust configurations
-fit <- srlars(x_train, y_train,
-              n_models = 5,
-              tolerance = 1e-4,
-              x_preprocess = "ddc",
-              y_preprocess = "wrap",
-              cor_estimator = "wrap",
-              cv_preprocess = "global",
-              cv_fit = "ls",
-              cv_loss = "huber",
-              compute_coef = TRUE)
-
-# --- 5. Prediction and Evaluation ---
-
-# Predict on new data
-# This automatically applies the trained DDC transform to the test predictors
-preds <- predict(fit, newx = x_test)
-
-# Evaluate MSPE
-mspe <- mean((y_test - preds)^2) / sigma^2
-print(paste("MSPE:", round(mspe, 3)))
-
-# Extract Coefficients (averaged over the ensemble)
-coefs <- coef(fit)
-
-# Variable Selection Metrics
-selected_indices <- which(coefs[-1] != 0)
-true_indices <- which(true.beta != 0)
-
-recall <- length(intersect(selected_indices, true_indices)) / length(true_indices)
-
-if (length(selected_indices) > 0) {
-  precision <- length(intersect(selected_indices, true_indices)) / length(selected_indices)
-} else {
-  precision <- 0
-}
-
-print(paste("Recall:", round(recall, 3)))
-print(paste("Precision:", round(precision, 3)))
+# Choose max_share automatically instead of setting it by hand:
+cv_fit <- cv.srlars(x, y, n_models = 5)
+coef(cv_fit) # coef()/predict() work directly on the cross-validated fit
 ```
 
-### License
+For a complete walkthrough -- simulating cellwise-contaminated data, fitting
+`srlars()`, and comparing `max_share`/`n_min` on the same dataset -- see the
+package vignette:
+
+```r
+vignette("srlars", package = "srlars")
+```
+
+## License
 
 This package is free and open source software, licensed under GPL (&gt;= 2).
