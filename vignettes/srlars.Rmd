@@ -15,15 +15,19 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 
 `srlars` fits the Fast and Scalable Cellwise-Robust Ensemble (FSCRE) algorithm: a
 competitive ensemble of `n_models` sparse sub-models, built on a cellwise-robust
-foundation (Detect Deviating Cells imputation and wrapping-based robust correlations)
-so that variable selection and prediction remain reliable when individual *cells* of
-the predictor matrix -- not necessarily whole observations -- are contaminated.
+foundation (Detect Deviating Cells imputation and wrapping-based robust correlations).
+"Cellwise" robustness matters because contamination in practice often corrupts
+individual *cells* of a data matrix rather than whole observations -- a handful of
+bad measurements scattered across otherwise-good rows -- which classical
+observation-level robust methods are not designed to handle.
 
-This vignette walks through a single, fast-running example: simulating a small
-contaminated dataset, fitting `srlars()`, and inspecting its two controls over how
-much the sub-models may share variables (`max_share`) and how small they may end up
-(`n_min`). It ends with a short note on `cv.srlars()`, which chooses `max_share`
-automatically.
+This vignette builds one small simulated example and reuses it throughout: we
+simulate a contaminated dataset, fit `srlars()` with its default settings, and then
+see what changes when we adjust its two ensemble-shape controls -- how much
+sub-models are allowed to share variables (`max_share`) and how small a sub-model is
+allowed to end up (`n_min`). It closes with a short, code-free note on
+`cv.srlars()`, which chooses `max_share` automatically instead of by hand as we do
+below.
 
 ```{r setup}
 library(srlars)
@@ -31,45 +35,70 @@ library(mvnfast)
 library(cellWise)
 ```
 
-## Simulating a small, cellwise-contaminated dataset
+## Building a test case: contaminated, high-dimensional data
 
-We simulate `p = 30` predictors in two correlated blocks of 3 active variables each
-(6 active predictors total), and contaminate a fraction of the cells of the training
-predictors with correlation outliers -- values that distort the multivariate
-dependence structure without necessarily standing out in any single variable. The
-test set is left clean, as would be the case for genuinely new data.
+The scenario we simulate: 500 candidate predictors, only a fraction of which are
+truly related to the response, and a training sample smaller than the number of
+predictors -- a setting where the number of *unknowns* outnumbers the number of
+*observations*. The truly active predictors sit in a few correlated blocks (so that
+some predictors are legitimately more informative than others), and the true
+predictor-response relationship is otherwise sparse. We then contaminate a fraction
+of the *cells* of the training predictors, leaving the test set clean.
 
-```{r sim-setup}
+We start with the pieces that describe the true relationship: a block-correlation
+structure among the active predictors, and a sparse coefficient vector that is
+nonzero only for those active predictors.
+
+```{r truth}
 set.seed(0)
 
-n <- 60          # training observations
-m <- 500         # test observations
-p <- 30          # predictors
-p.active <- 6    # truly active predictors
-group.size <- 3
-rho.within <- 0.7
-rho.between <- 0.1
-snr <- 3
-contamination.prop <- 0.15
-gamma <- 3       # contamination strength
-n_models <- 4
+n <- 50              # training observations
+m <- 2000            # test observations
+p <- 500             # candidate predictors
+p.active <- 75       # truly active predictors, in blocks below
+group.size <- 15     # active predictors per correlated block
+n_models <- 10       # ensemble size (K)
 
-# Block-correlation structure among the active predictors
+# Active predictors sit in correlated blocks; everything else is independent noise.
 sigma.mat <- matrix(0, p, p)
-sigma.mat[1:p.active, 1:p.active] <- rho.between
+sigma.mat[1:p.active, 1:p.active] <- 0.1 # weak correlation across blocks
 for (g in 0:(p.active / group.size - 1)) {
   idx <- (g * group.size + 1):(g * group.size + group.size)
-  sigma.mat[idx, idx] <- rho.within
+  sigma.mat[idx, idx] <- 0.7 # stronger correlation within a block
 }
 diag(sigma.mat) <- 1
 
+# A sparse, moderate-signal true coefficient vector
 true.beta <- c(runif(p.active, 0, 5) * (-1) ^ rbinom(p.active, 1, 0.7),
               rep(0, p - p.active))
-sigma <- as.numeric(sqrt(t(true.beta) %*% sigma.mat %*% true.beta) / sqrt(snr))
+sigma <- as.numeric(sqrt(t(true.beta) %*% sigma.mat %*% true.beta)) # signal-to-noise = 1
 ```
 
-```{r sim-contam}
-contam_correlation <- function(X, prop, sigma_mat, gamma) {
+With the true relationship fixed, generating the actual training and test sets is
+just sampling predictors and adding noise to the response -- the test set stays
+clean throughout, as a genuine holdout should:
+
+```{r generate-data}
+x_train <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
+y_train <- as.numeric(x_train %*% true.beta + rnorm(n, 0, sigma))
+colnames(x_train) <- paste0("V", 1:p)
+
+x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
+y_test <- as.numeric(x_test %*% true.beta + rnorm(m, 0, sigma))
+colnames(x_test) <- colnames(x_train)
+```
+
+Finally, we contaminate 15% of the *cells* of the training predictors only. Rather
+than replacing values with arbitrary noise, each contaminated row's affected cells
+are set to a *correlation outlier*: a combination of values that looks unremarkable
+one variable at a time, but distorts the multivariate dependence structure DDC and
+wrapping are specifically designed to catch. The exact linear algebra behind that
+(`contam_correlation()` below) isn't essential reading -- what matters is that it
+plants exactly this kind of cellwise, dependence-breaking contamination into
+`x_train`:
+
+```{r contaminate}
+contam_correlation <- function(X, prop, sigma_mat, gamma = 3) {
   n <- nrow(X); p <- ncol(X)
   idx <- sample.int(n * p, size = round(n * p * prop))
   rows <- ((idx - 1) %% n) + 1
@@ -80,28 +109,20 @@ contam_correlation <- function(X, prop, sigma_mat, gamma) {
     if (length(J) == 0) next
     if (length(J) == 1) { X[i, J] <- gamma * 3; next }
     SigmaJ <- sigma_mat[J, J, drop = FALSE]
-    ev <- eigen(SigmaJ, symmetric = TRUE)
-    vmin <- ev$vectors[, ncol(ev$vectors)]
+    vmin <- eigen(SigmaJ, symmetric = TRUE)$vectors[, length(J)]
     denom <- mahalanobis(t(vmin), center = rep(0, length(J)), cov = SigmaJ)
     X[i, J] <- gamma * sqrt(length(J)) * (vmin / sqrt(denom))
   }
   X
 }
 
-# Training data (contaminated predictors)
-x_train <- mvnfast::rmvn(n, mu = rep(0, p), sigma = sigma.mat)
-y_train <- as.numeric(x_train %*% true.beta + rnorm(n, 0, sigma))
-x_train <- contam_correlation(x_train, contamination.prop, sigma.mat, gamma)
-colnames(x_train) <- paste0("V", 1:p)
-
-# Test data (clean)
-x_test <- mvnfast::rmvn(m, mu = rep(0, p), sigma = sigma.mat)
-y_test <- as.numeric(x_test %*% true.beta + rnorm(m, 0, sigma))
-colnames(x_test) <- colnames(x_train)
+x_train <- contam_correlation(x_train, prop = 0.15, sigma_mat = sigma.mat)
 ```
 
-A small helper to score selection (precision/recall against the known active set)
-and prediction (MSPE, scaled by the noise variance) is all we need throughout:
+Lastly, one small helper we'll reuse for every fit below: precision and recall of
+the selected variables against the *known* active set, and out-of-sample MSPE
+(scaled by the noise variance, so that `1` is roughly what a correctly-specified
+model would achieve):
 
 ```{r metrics-helper}
 get_metrics <- function(fit) {
@@ -109,21 +130,20 @@ get_metrics <- function(fit) {
   sel <- which(coefs != 0)
   truth <- which(true.beta != 0)
 
-  precision <- length(intersect(sel, truth)) / max(length(sel), 1)
-  recall <- length(intersect(sel, truth)) / length(truth)
-
   preds <- as.numeric(predict(fit, x_test))
-  mspe <- mean((y_test - preds)^2) / sigma^2
 
-  c(Precision = precision, Recall = recall, MSPE = mspe,
-   Mean.active.size = mean(vapply(fit$active.sets, length, integer(1))))
+  c(Precision = length(intersect(sel, truth)) / max(length(sel), 1),
+   Recall = length(intersect(sel, truth)) / length(truth),
+   MSPE = mean((y_test - preds)^2) / sigma^2,
+   `Mean sub-model size` = mean(vapply(fit$active.sets, length, integer(1))))
 }
 ```
 
 ## Fitting srlars()
 
-By default, `max_share = 1`: the `n_models` sub-models are fully disjoint -- no
-variable can be selected by more than one of them.
+With the data in hand, fitting the default ensemble is a single call. By default,
+`max_share = 1`: the `n_models` sub-models are fully disjoint, so no variable can be
+selected by more than one of them.
 
 ```{r fit-default}
 fit_default <- srlars(x_train, y_train,
@@ -137,24 +157,47 @@ fit_default <- srlars(x_train, y_train,
                       cv_loss = "huber",
                       cv_folds = 5,
                       compute_coef = TRUE)
-
-fit_default$active.sets
-get_metrics(fit_default)
 ```
 
-`coef()` and `predict()` average across the ensemble's sub-models:
+Each sub-model gets its own, disjoint set of variables:
+
+```{r active-sizes}
+knitr::kable(
+  data.frame(`Sub-model` = seq_len(n_models),
+            `Variables selected` = vapply(fit_default$active.sets, length, integer(1))),
+  align = "c"
+)
+```
+
+```{r metrics-default}
+metrics_default <- get_metrics(fit_default)
+knitr::kable(t(round(metrics_default, 3)), caption = "srlars() at the default max_share = 1")
+```
+
+Out of `r p.active` truly active predictors, this run recovers a recall of
+`r round(metrics_default["Recall"], 2)` at a precision of
+`r round(metrics_default["Precision"], 2)` -- exactly how well any particular run
+does will vary with the random contamination draw, but the shape of the result
+(some but not all of the true signal recovered, most of what's selected genuinely
+active) is typical of this kind of high-dimensional, heavily contaminated setting.
+
+`coef()` and `predict()` both average across the ensemble's sub-models, so they work
+exactly like the corresponding methods for an ordinary fitted regression:
 
 ```{r coef-predict}
-coef(fit_default)[1:5] # intercept + first few slopes
-predict(fit_default, x_test[1:5, ])
+knitr::kable(t(round(coef(fit_default)[1:6], 3)),
+            col.names = c("Intercept", paste0("V", 1:5)))
+knitr::kable(t(round(predict(fit_default, x_test[1:5, ]), 2)),
+            col.names = paste("Test row", 1:5))
 ```
 
 ## Controlling how much sub-models can share: `max_share`
 
-`max_share` (1 to `n_models`) relaxes disjointness: a variable may be selected by up
-to `max_share` sub-models. At the other extreme, `max_share = n_models` places no
-restriction on sharing at all -- sub-models are then free to converge on the same
-variables. Refitting on the same data:
+`max_share` (from `1` to `n_models`) relaxes the disjointness above: a variable may
+now be selected by up to `max_share` sub-models instead of just one. At the other
+extreme, `max_share = n_models` removes the restriction entirely -- sub-models are
+then completely free to converge on the same variables. Refitting on the exact same
+data, changing only `max_share`:
 
 ```{r fit-shared}
 fit_shared <- srlars(x_train, y_train,
@@ -170,25 +213,31 @@ fit_shared <- srlars(x_train, y_train,
                      cv_folds = 5,
                      compute_coef = TRUE)
 
-rbind(`max_share = 1 (default)` = get_metrics(fit_default),
-     `max_share = n_models`    = get_metrics(fit_shared))
+metrics_shared <- get_metrics(fit_shared)
+knitr::kable(
+  rbind(`max_share = 1 (default)` = round(metrics_default, 3),
+       `max_share = n_models`    = round(metrics_shared, 3))
+)
 ```
 
-Whether sharing helps or hurts is dataset-dependent: more sharing means fewer
-independent sub-models exploring different variables (which can hurt recall in a
-high-dimensional, many-active-variable setting like this one), but it also lets the
-ensemble refit the same, well-supported variables multiple times when a dataset does
-not need broad exploration. `cv.srlars()` (see below) picks `max_share` for you by
-cross-validation rather than requiring this kind of manual comparison.
+Here, allowing unrestricted sharing moves recall from `r round(metrics_default["Recall"], 2)`
+to `r round(metrics_shared["Recall"], 2)`: with fewer independent sub-models
+exploring *different* variables, the ensemble as a whole tends to cover less of a
+broad, many-active-variable truth like this one. That trade is not universal, though
+-- letting sub-models refit the same, well-supported variables can help on datasets
+that don't need broad exploration in the first place. `cv.srlars()` (see the closing
+section) picks `max_share` for you by cross-validation, rather than requiring this
+kind of manual comparison.
 
 ## Guaranteeing a minimum sub-model size: `n_min`
 
-The selection loop can stop early -- across the *entire* ensemble at once -- as soon
-as no sub-model's next candidate variable shows a sufficient cross-validated
-improvement. On some datasets this can leave sub-models quite small. `n_min` sets a
-floor: sub-models below it keep receiving their best available variable even if it
-doesn't clear the usual improvement bar (though it can never violate the
-`max_share` diversity restrictions above).
+The selection loop's stopping rule is evaluated once per round, across the *entire*
+ensemble at once: it halts as soon as no sub-model's next candidate variable shows a
+sufficient cross-validated improvement. On some datasets that can leave sub-models
+quite small. `n_min` sets a floor under that: sub-models below it keep receiving
+their best available variable even when it doesn't clear the usual improvement bar
+(though it can never violate the `max_share` restrictions above -- only the
+improvement requirement is relaxed).
 
 ```{r fit-nmin}
 fit_floor <- srlars(x_train, y_train,
@@ -204,16 +253,26 @@ fit_floor <- srlars(x_train, y_train,
                     cv_folds = 5,
                     compute_coef = TRUE)
 
-rbind(`n_min = NULL (default)` = get_metrics(fit_default),
-     `n_min = 5`               = get_metrics(fit_floor))
+metrics_floor <- get_metrics(fit_floor)
+knitr::kable(
+  rbind(`n_min = NULL (default)` = round(metrics_default, 3),
+       `n_min = 5`               = round(metrics_floor, 3))
+)
 ```
+
+Forcing a floor of 5 variables per sub-model raises the mean sub-model size from
+`r round(metrics_default["Mean sub-model size"], 1)` to
+`r round(metrics_floor["Mean sub-model size"], 1)`, which typically trades some
+precision (a few of the forced-in variables are not genuinely active) for higher
+recall -- useful when the default stopping rule is cutting sub-models off before
+they've captured much real signal, but not something to reach for by default.
 
 ## Choosing `max_share` automatically: `cv.srlars()`
 
 Rather than comparing `max_share` values by hand as above, `cv.srlars()` chooses it
-by an outer cross-validation loop scored on held-out *ensemble* prediction error, and
-returns the refit at the cross-validated optimum. The expensive cellwise-robust
-preprocessing stage is computed once per outer fold and reused across every candidate
-value, so this is efficient relative to a naive grid search. The object it returns
-is classed so that `coef()` and `predict()` work on it exactly as they do above --
-no new methods to learn. See `?cv.srlars` for details.
+by an outer cross-validation loop scored on held-out *ensemble* prediction error,
+and returns the refit at the cross-validated optimum. The expensive cellwise-robust
+preprocessing stage is computed once per outer fold and reused across every
+candidate value, so this is efficient relative to a naive grid search. The object it
+returns is classed so that `coef()` and `predict()` work on it exactly as they do
+above -- no new methods to learn. See `?cv.srlars` for details.
