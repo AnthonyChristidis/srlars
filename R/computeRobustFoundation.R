@@ -47,7 +47,7 @@ computeRobustFoundation <- function(x, y, x_preprocess, y_preprocess, cor_estima
 
     if (y_preprocess == "wrap") {
         # cellWise::wrap expects a matrix
-        yw_out <- cellWise::wrap(as.matrix(y))
+        yw_out <- cellWise::wrap(as.matrix(y), checkPars = list(silent = TRUE))
         y.imp <- as.numeric(yw_out$Xw)
     } else if (y_preprocess == "robust_z") {
         med_y <- median(y)
@@ -66,8 +66,8 @@ computeRobustFoundation <- function(x, y, x_preprocess, y_preprocess, cor_estima
     if (cor_estimator == "wrap") {
         # Raymaekers & Rousseeuw (2021): wrap then Pearson cor -> Guaranteed PSD
         # Note: We wrap the already cleaned data to ensure maximum robustness
-        Xw <- cellWise::wrap(x.imp)$Xw
-        yw <- cellWise::wrap(as.matrix(y.imp))$Xw
+        Xw <- cellWise::wrap(x.imp, checkPars = list(silent = TRUE))$Xw
+        yw <- cellWise::wrap(as.matrix(y.imp), checkPars = list(silent = TRUE))$Xw
         
         Rx <- cor(Xw)
         ry <- as.numeric(cor(Xw, yw))

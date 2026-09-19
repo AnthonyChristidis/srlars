@@ -124,13 +124,14 @@ performSelectionLoop <- function(Rx, ry,
             y_val_raw   <- as.numeric(y[val_idx])
 
             if (y_preprocess == "wrap") {
-                w_train <- cellWise::wrap(as.matrix(y_train_raw))
+                w_train <- cellWise::wrap(as.matrix(y_train_raw), checkPars = list(silent = TRUE))
                 y_train_f <- as.numeric(w_train$Xw)
 
                 # Apply same loc/scale to val fold to keep scales consistent
                 w_val <- cellWise::wrap(as.matrix(y_val_raw),
                                         locX = w_train$loc,
-                                        scaleX = w_train$scale)
+                                        scaleX = w_train$scale,
+                                        checkPars = list(silent = TRUE))
                 y_val_f <- as.numeric(w_val$Xw)
 
             } else if (y_preprocess == "robust_z") {
