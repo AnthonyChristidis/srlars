@@ -111,25 +111,7 @@ computeCVError <- function(cv_data, active_set, cv_fit, cv_loss) {
 
         r_val <- y_val - y_pred
 
-        if (cv_loss == "mse") {
-            fold_errors[f] <- mean(r_val^2)
-
-        } else if (cv_loss == "trimmed") {
-            r2 <- r_val^2
-            cutoff <- quantile(r2, 0.90, names = FALSE)
-            fold_errors[f] <- mean(r2[r2 <= cutoff])
-
-        } else if (cv_loss == "huber") {
-            k <- 1.345
-            scale_est <- mad(r_train)
-            if (scale_est < 1e-6) scale_est <- max(sd(r_train), 1e-6)
-
-            u <- r_val / scale_est
-            huber_loss <- ifelse(abs(u) <= k,
-                                 0.5 * u^2,
-                                 k * abs(u) - 0.5 * k^2)
-            fold_errors[f] <- mean(huber_loss) * (scale_est^2)
-        }
+        fold_errors[f] <- computeRobustLoss(r_val, if (cv_loss == "huber") r_train else NULL, cv_loss)
     }
 
     return(mean(fold_errors))
