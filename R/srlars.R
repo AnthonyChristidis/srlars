@@ -185,6 +185,7 @@ srlars <- function(x, y,
         n_models = n_models,
         x_preprocess = x_preprocess,
         y_preprocess = y_preprocess,
+        robust = (x_preprocess == "ddc"),
         ddc.object = ddc.object,
         imputed.data = list(x = x.imp, y = y.imp) # Always return this for user transparency
     )

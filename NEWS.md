@@ -20,3 +20,10 @@
 
 # srlars 3.0.1
 * Make `cv_fit = "huber"` the default.
+
+# srlars 3.1.0
+* Fixed `predict.srlars()`'s dynamic DDC-cleaning of new data: `object$robust` is now set by
+  `srlars()` (it was previously always missing, so the DDC-cleaning branch was dead code and
+  `dynamic = TRUE` had no effect), and the stale dummy-response-column augmentation before
+  calling `cellWise::DDCpredict()` was removed to match the fact that `x_preprocess = "ddc"` is
+  fit on the predictors alone.

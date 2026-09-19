@@ -115,30 +115,17 @@ predict.srlars <- function(object,
     # Check if we should (and can) perform robust cleaning
     if (dynamic && isTRUE(object$robust) && !is.null(object$ddc.object)) {
 
-        # We use DDCpredict to clean the new data.
-        # DDCpredict requires the input to have the same number of columns as the training data.
-        # Since training data was [X, y] (p+1 columns), we must augment newx with a dummy response column.
-
-        # Append dummy column of NAs
-        newx_aug <- cbind(newx, NA)
-
-        # Ensure column names match expected pattern if possible.
-        # We append a placeholder name for the dummy response.
-        colnames(newx_aug) <- c(colnames(newx), "response_placeholder")
-
+        # object$ddc.object was fit on the predictors alone (computeRobustFoundation runs DDC
+        # on X only, separately from y, to avoid target leakage), so newx is passed as-is.
         ddc_pred <- tryCatch({
-            # Run DDCpredict on augmented data
-            # Note: We rely on DDCpredict to ignore the NA column for cleaning X, or treat it as missing.
-            cellWise::DDCpredict(Xnew = newx_aug, InitialDDC = object$ddc.object)
+            cellWise::DDCpredict(Xnew = newx, InitialDDC = object$ddc.object)
         }, error = function(e) {
             warning(paste("DDCpredict failed:", e$message, "Falling back to raw newx."))
             return(NULL)
         })
 
         if (!is.null(ddc_pred)) {
-            # Extract the cleaned X part (remove the dummy response column)
-            # DDCpredict returns $Ximp with same dimensions as input
-            x_for_pred <- ddc_pred$Ximp[, 1:ncol(newx), drop = FALSE]
+            x_for_pred <- ddc_pred$Ximp
         }
     }
 
