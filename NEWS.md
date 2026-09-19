@@ -39,3 +39,6 @@
   positive-benefit/`tolerance` requirement. Default is `NULL` (no floor, original behavior). Never
   bypasses the `max_share`/diversity pool restrictions -- only the CV-benefit acceptance
   requirement is relaxed for sub-models below the floor.
+* Added `cv.srlars()`: chooses `max_share` by (outer) cross-validation and returns the ensemble
+  refit at the cross-validated optimum. `coef()` and `predict()` work directly on the result via
+  the existing `coef.srlars()`/`predict.srlars()` methods.

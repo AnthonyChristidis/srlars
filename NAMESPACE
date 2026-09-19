@@ -2,6 +2,7 @@
 
 S3method(coef,srlars)
 S3method(predict,srlars)
+export(cv.srlars)
 export(srlars)
 importFrom(cellWise,DDC)
 importFrom(cellWise,DDCpredict)
